@@ -35,17 +35,37 @@ app.use(session({
     ttl: 24 * 60 * 60,
     autoRemove: 'native',
     touchAfter: 24 * 3600,
-    collectionName: 'express_sessions'
+    collectionName: 'express_sessions',
+    serialize: (session) => {
+      return JSON.stringify(session);
+    },
+    unserialize: (session) => {
+      return JSON.parse(session);
+    }
   }),
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     maxAge: 24 * 60 * 60 * 1000,
     httpOnly: true,
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined
+    domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined,
+    path: '/'
   },
-  name: 'career_verse_sid'
+  name: 'career_verse_sid',
+  rolling: true
 }));
+
+// Add session debugging middleware
+app.use((req, res, next) => {
+  console.log('Session Debug:', {
+    sessionID: req.sessionID,
+    chatSessionId: req.session.chatSessionId,
+    cookie: req.headers.cookie,
+    origin: req.headers.origin,
+    host: req.headers.host
+  });
+  next();
+});
 
 // Middleware
 app.use(cors({
@@ -59,7 +79,8 @@ app.use(cors({
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cookie'],
+  exposedHeaders: ['Set-Cookie']
 }));
 app.use(bodyParser.json());
 
@@ -331,24 +352,33 @@ app.post('/api/chat', validateMessage, async (req, res) => {
 // Get chat history
 app.get('/api/chat/history', async (req, res) => {
   try {
-    console.log('History API - Session Info:', {
-      sessionId: req.session.chatSessionId,
-      sessionCookie: req.cookies?.career_verse_sid,
-      headers: req.headers.cookie,
+    console.log('History API - Full Request Info:', {
+      sessionID: req.sessionID,
+      chatSessionId: req.session.chatSessionId,
+      cookie: req.headers.cookie,
+      origin: req.headers.origin,
+      host: req.headers.host,
       session: req.session
     });
 
-    if (!req.session.chatSessionId) {
+    // Try to get session ID from both session and cookie
+    const sessionId = req.session.chatSessionId || 
+                     (req.cookies && req.cookies.career_verse_sid) ||
+                     (req.headers.cookie && req.headers.cookie.split(';')
+                       .find(c => c.trim().startsWith('career_verse_sid='))
+                       ?.split('=')[1]);
+
+    if (!sessionId) {
       console.log('No session ID found in request');
-      return res.json({ messages: [], sessionId: null });
+      return res.json({ messages: [], userInfo: {}, sessionId: null });
     }
 
-    const chatSession = await ChatSession.findOne({ sessionId: req.session.chatSessionId });
+    const chatSession = await ChatSession.findOne({ sessionId });
     console.log('Found chat session:', chatSession ? 'Yes' : 'No');
     
     if (!chatSession) {
       console.log('No chat session found in database');
-      return res.json({ messages: [], sessionId: null });
+      return res.json({ messages: [], userInfo: {}, sessionId: null });
     }
 
     // Filter out system messages and welcome message
@@ -357,9 +387,25 @@ app.get('/api/chat/history', async (req, res) => {
       !(msg.role === 'assistant' && msg.content === WELCOME_MESSAGE)
     );
 
+    // Update session with chat session ID if it wasn't set
+    if (!req.session.chatSessionId) {
+      req.session.chatSessionId = sessionId;
+      await new Promise((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) {
+            console.error('Error saving session:', err);
+            reject(err);
+          } else {
+            console.log('Session saved successfully');
+            resolve();
+          }
+        });
+      });
+    }
+
     res.json({
       messages: filteredMessages,
-      userInfo: chatSession.userInfo,
+      userInfo: chatSession.userInfo || {},
       sessionId: chatSession.sessionId
     });
   } catch (error) {
