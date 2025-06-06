@@ -168,8 +168,12 @@ app.post('/api/conversation', validateMessage, async (req, res) => {
 app.post('/api/chat', validateMessage, async (req, res) => {
   try {
     const { message } = req.body;
-    console.log('Received message:', message);
-    console.log('Current session id:', req.session.chatSessionId);
+    console.log('Chat API - Initial Session Info:', {
+      sessionId: req.session.chatSessionId,
+      sessionCookie: req.cookies?.career_verse_sid,
+      headers: req.headers.cookie,
+      session: req.session
+    });
 
     // Get or create chat session
     let chatSession;
@@ -209,9 +213,23 @@ app.post('/api/chat', validateMessage, async (req, res) => {
       
       // Set session ID in cookie
       req.session.chatSessionId = newSessionId;
-      await req.session.save();
+      await new Promise((resolve, reject) => {
+        req.session.save((err) => {
+          if (err) {
+            console.error('Error saving session:', err);
+            reject(err);
+          } else {
+            console.log('Session saved successfully');
+            resolve();
+          }
+        });
+      });
       
-      console.log('Created new session:', newSessionId);
+      console.log('Session after save:', {
+        sessionId: req.session.chatSessionId,
+        sessionCookie: req.cookies?.career_verse_sid
+      });
+      
       isNewSession = true;
     }
 
@@ -313,12 +331,23 @@ app.post('/api/chat', validateMessage, async (req, res) => {
 // Get chat history
 app.get('/api/chat/history', async (req, res) => {
   try {
+    console.log('History API - Session Info:', {
+      sessionId: req.session.chatSessionId,
+      sessionCookie: req.cookies?.career_verse_sid,
+      headers: req.headers.cookie,
+      session: req.session
+    });
+
     if (!req.session.chatSessionId) {
+      console.log('No session ID found in request');
       return res.json({ messages: [], sessionId: null });
     }
 
     const chatSession = await ChatSession.findOne({ sessionId: req.session.chatSessionId });
+    console.log('Found chat session:', chatSession ? 'Yes' : 'No');
+    
     if (!chatSession) {
+      console.log('No chat session found in database');
       return res.json({ messages: [], sessionId: null });
     }
 
