@@ -459,6 +459,12 @@ app.get('/', (req, res) => {
   res.json({ message: 'Welcome to CareerVerse API' });
 });
 
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
-}); 
+// For local development
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(port, () => {
+    console.log(`Server is running on port ${port}`);
+  });
+}
+
+// Export the Express API
+export default app; 
