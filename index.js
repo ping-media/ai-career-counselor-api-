@@ -245,10 +245,10 @@ app.post('/api/chat', validateMessage, async (req, res) => {
 
       // Log OpenAI API request
       console.log('OpenAI API Request:', {
-        model: "gpt-4",
+        model: "gpt-3.5-turbo",
         messageCount: messages.length,
         temperature: 0.3,
-        max_tokens: 1000,
+        max_tokens: 700,
         state: chatSession.state
       });
 
@@ -256,7 +256,7 @@ app.post('/api/chat', validateMessage, async (req, res) => {
         model: "gpt-4",
         messages: messages,
         temperature: 0.3,
-        max_tokens: 1000
+        max_tokens: 700
       });
 
       // Log OpenAI API response
