@@ -50,6 +50,7 @@ app.use(cors({
   origin: [
     process.env.FRONTEND_URL || 'http://localhost:5000',
     'http://ai-career-counselor-app.vercel.app',
+    'https://ai-career-counselor-app.vercel.app',
     'https://ypd.indyside.com'
   ],
   credentials: true,
