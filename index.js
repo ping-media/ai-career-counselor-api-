@@ -2,15 +2,12 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import bodyParser from 'body-parser';
-import session from 'express-session';
-import MongoStore from 'connect-mongo';
 import connectDB from './config/db.js';
 import openai from './config/openai.js';
 import { getSystemPrompt, CONVERSATION_STATES, WELCOME_MESSAGE } from './prompts/chatPrompts.js';
 import ChatSession from './models/ChatSession.js';
 import { getOrCreateChatSession, updateConversationState } from './chatUtils.js';
 import { v4 as uuidv4 } from 'uuid';
-import cookieParser from 'cookie-parser';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -31,30 +28,8 @@ app.use(cors({
   origin: ['https://ai-career-counselor-app.vercel.app', 'http://localhost:3000', 'http://localhost:5000', 'http://127.0.0.1:5500'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
-  exposedHeaders: ['Set-Cookie']
-}));
-
-// Add cookie parser middleware
-app.use(cookieParser());
-
-// Session Configuration
-app.use(session({
-  secret: process.env.SESSION_SECRET || '1234567',
-  resave: false,
-  saveUninitialized: false,
-  store: MongoStore.create({
-    mongoUrl: process.env.MONGODB_URI,
-    ttl: 24 * 60 * 60,
-    collectionName: 'express_sessions'
-  }),
-  cookie: {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'none',
-    maxAge: 24 * 60 * 60 * 1000,
-  },
-  name: 'career_verse_sid'
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-ID'],
+  exposedHeaders: ['X-Session-ID']
 }));
 
 // Middleware
@@ -165,38 +140,13 @@ app.post('/api/conversation', validateMessage, async (req, res) => {
 app.post('/api/chat', validateMessage, async (req, res) => {
   try {
     const { message } = req.body;
-    console.log('Chat API - Initial Session Info:', {
-      sessionId: req.session.chatSessionId,
-      sessionCookie: req.cookies?.career_verse_sid,
-      headers: req.headers.cookie,
-      session: req.session
-    });
-
-    // Try to get session ID from session, cookie, or header
-    let sessionId = req.session.chatSessionId ||
-      (req.cookies && req.cookies.career_verse_sid) ||
-      (req.headers.cookie && req.headers.cookie.split(';')
-        .find(c => c.trim().startsWith('career_verse_sid='))
-        ?.split('=')[1]);
+    const sessionId = req.headers['x-session-id'];
 
     let chatSession = null;
     let isNewSession = false;
 
     if (sessionId) {
       chatSession = await ChatSession.findOne({ sessionId });
-      if (chatSession) {
-        req.session.chatSessionId = sessionId; // Ensure session is set
-        await new Promise((resolve, reject) => {
-          req.session.save((err) => {
-            if (err) {
-              console.error('Error saving session:', err);
-              reject(err);
-            } else {
-              resolve();
-            }
-          });
-        });
-      }
     }
 
     if (!chatSession) {
@@ -218,19 +168,7 @@ app.post('/api/chat', validateMessage, async (req, res) => {
         userInfo: {}
       });
       await chatSession.save();
-      req.session.chatSessionId = newSessionId;
-      await new Promise((resolve, reject) => {
-        req.session.save((err) => {
-          if (err) {
-            console.error('Error saving session:', err);
-            reject(err);
-          } else {
-            resolve();
-          }
-        });
-      });
       isNewSession = true;
-      sessionId = newSessionId;
       console.log('Created new session:', newSessionId);
     }
 
@@ -298,7 +236,6 @@ app.post('/api/chat', validateMessage, async (req, res) => {
       });
 
       response = completion.choices[0].message.content;
-      //console.log('GPT-4 Response:', response);
 
       // Add assistant response to session
       chatSession.messages.push({
@@ -332,24 +269,7 @@ app.post('/api/chat', validateMessage, async (req, res) => {
 // Get chat history
 app.get('/api/chat/history', async (req, res) => {
   try {
-
-    console.log('Cookies:', req.cookies);
-
-    // console.log('History API - Full Request Info:', {
-    //   sessionID: req.sessionID,
-    //   chatSessionId: req.session.chatSessionId,
-    //   cookie: req.headers.cookie,
-    //   origin: req.headers.origin,
-    //   host: req.headers.host,
-    //   session: req.session
-    // });
-
-    // Try to get session ID from both session and cookie
-    const sessionId = req.session.chatSessionId || 
-                     (req.cookies && req.cookies.career_verse_sid) ||
-                     (req.headers.cookie && req.headers.cookie.split(';')
-                       .find(c => c.trim().startsWith('career_verse_sid='))
-                       ?.split('=')[1]);
+    const sessionId = req.headers['x-session-id'];
 
     if (!sessionId) {
       console.log('No session ID found in request');
@@ -369,22 +289,6 @@ app.get('/api/chat/history', async (req, res) => {
       msg.role !== 'system' && 
       !(msg.role === 'assistant' && msg.content === WELCOME_MESSAGE)
     );
-
-    // Update session with chat session ID if it wasn't set
-    if (!req.session.chatSessionId) {
-      req.session.chatSessionId = sessionId;
-      await new Promise((resolve, reject) => {
-        req.session.save((err) => {
-          if (err) {
-            console.error('Error saving session:', err);
-            reject(err);
-          } else {
-            console.log('Session saved successfully');
-            resolve();
-          }
-        });
-      });
-    }
 
     res.json({
       messages: filteredMessages,
@@ -422,7 +326,16 @@ app.get('/api/chat/history/:sessionId', async (req, res) => {
 app.post('/api/chat/user-info', async (req, res) => {
   try {
     const { name, stream, selectedRole } = req.body;
-    const chatSession = await getOrCreateChatSession(req);
+    const sessionId = req.headers['x-session-id'];
+
+    if (!sessionId) {
+      return res.status(400).json({ error: 'Session ID is required' });
+    }
+
+    const chatSession = await ChatSession.findOne({ sessionId });
+    if (!chatSession) {
+      return res.status(404).json({ error: 'Chat session not found' });
+    }
 
     // Only update userInfo if valid values are provided
     const userInfo = {};
@@ -463,15 +376,6 @@ app.post('/api/chat/new-session', async (req, res) => {
   try {
     console.log('Starting new session process...');
 
-    // Delete the existing chat session from MongoDB if it exists
-    if (req.session.chatSessionId) {
-      try {
-        await ChatSession.deleteOne({ sessionId: req.session.chatSessionId });
-      } catch (error) {
-        console.error('Error deleting chat session:', error);
-      }
-    }
-
     // Create a new chat session
     const newSessionId = uuidv4();
     const newChatSession = new ChatSession({
@@ -489,26 +393,12 @@ app.post('/api/chat/new-session', async (req, res) => {
     await newChatSession.save();
     console.log('New chat session created in MongoDB: ', newSessionId);
 
-    // Update the session with new chat session ID
-    req.session.chatSessionId = newSessionId;
-    
-    // Save the session
-    req.session.save((err) => {
-      if (err) {
-        console.error('Error saving session:', err);
-        return res.status(500).json({ 
-          error: 'Failed to start new session',
-          details: err.message 
-        });
-      }
-      console.log('Session updated successfully');
-      res.json({ 
-        success: true,
-        message: 'New session created successfully',
-        sessionId: newSessionId,
-        messages: newChatSession.messages,
-        userInfo: newChatSession.userInfo
-      });
+    res.json({ 
+      success: true,
+      message: 'New session created successfully',
+      sessionId: newSessionId,
+      messages: newChatSession.messages,
+      userInfo: newChatSession.userInfo
     });
   } catch (error) {
     console.error('Error in new session endpoint:', error);
