@@ -90,13 +90,12 @@ app.use(session({
     }
   }),
   cookie: {
-    secure: true,
+    secure: process.env.NODE_ENV === 'production', // Only use secure in production
     maxAge: 24 * 60 * 60 * 1000,
     httpOnly: true,
-    sameSite: 'none',
-    domain: '.vercel.app',
-    path: '/',
-    credentials: true
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined, // Only set domain in production
+    path: '/'
   },
   name: 'career_verse_sid',
   rolling: true
@@ -109,7 +108,13 @@ app.use((req, res, next) => {
     chatSessionId: req.session.chatSessionId,
     cookie: req.headers.cookie,
     origin: req.headers.origin,
-    host: req.headers.host
+    host: req.headers.host,
+    env: process.env.NODE_ENV,
+    cookieConfig: {
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined
+    }
   });
   next();
 });
