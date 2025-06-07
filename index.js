@@ -28,7 +28,27 @@ if (missingEnvVars.length > 0) {
 // CORS Configuration
 app.use(cors({
   origin: function(origin, callback) {
-    callback(null, true); // Allow all origins
+    console.log('CORS Origin:', origin);
+    // Allow requests with no origin (like mobile apps, curl, etc)
+    if (!origin) {
+      console.log('No origin provided, allowing request');
+      return callback(null, true);
+    }
+    
+    const allowedOrigins = [
+      'https://ai-career-counselor-app.vercel.app',
+      'https://ai-career-counselor-lvk5xic0x-rentobikes.vercel.app',
+      'http://localhost:3000',
+      'http://localhost:5000',
+    ];
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
+      console.log('Origin allowed:', origin);
+      callback(null, true);
+    } else {
+      console.log('Origin not allowed:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
@@ -37,6 +57,19 @@ app.use(cors({
   preflightContinue: false,
   optionsSuccessStatus: 204
 }));
+
+// Add request debugging middleware
+app.use((req, res, next) => {
+  console.log('Request Debug:', {
+    headers: req.headers,
+    origin: req.headers.origin,
+    referer: req.headers.referer,
+    host: req.headers.host,
+    url: req.url,
+    method: req.method
+  });
+  next();
+});
 
 // Session Configuration
 app.use(session({
