@@ -10,6 +10,7 @@ import { getSystemPrompt, CONVERSATION_STATES, WELCOME_MESSAGE } from './prompts
 import ChatSession from './models/ChatSession.js';
 import { getOrCreateChatSession, updateConversationState } from './chatUtils.js';
 import { v4 as uuidv4 } from 'uuid';
+import cookieParser from 'cookie-parser';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -27,97 +28,34 @@ if (missingEnvVars.length > 0) {
 
 // CORS Configuration
 app.use(cors({
-  origin: function(origin, callback) {
-    console.log('CORS Origin:', origin);
-    // Allow requests with no origin (like mobile apps, curl, etc)
-    if (!origin) {
-      console.log('No origin provided, allowing request');
-      return callback(null, true);
-    }
-    
-    const allowedOrigins = [
-      'https://ai-career-counselor-app.vercel.app',
-      'https://ai-career-counselor-lvk5xic0x-rentobikes.vercel.app',
-      'http://localhost:3000',
-      'http://localhost:5000',
-    ];
-    
-    if (allowedOrigins.indexOf(origin) !== -1 || !origin) {
-      console.log('Origin allowed:', origin);
-      callback(null, true);
-    } else {
-      console.log('Origin not allowed:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
+  origin: ['https://ai-career-counselor-app.vercel.app', 'http://localhost:3000', 'http://localhost:5000', 'http://127.0.0.1:5500'],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cookie', 'Set-Cookie'],
-  exposedHeaders: ['Set-Cookie'],
-  preflightContinue: false,
-  optionsSuccessStatus: 204
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+  exposedHeaders: ['Set-Cookie']
 }));
 
-// Add request debugging middleware
-app.use((req, res, next) => {
-  console.log('Request Debug:', {
-    headers: req.headers,
-    origin: req.headers.origin,
-    referer: req.headers.referer,
-    host: req.headers.host,
-    url: req.url,
-    method: req.method
-  });
-  next();
-});
+// Add cookie parser middleware
+app.use(cookieParser());
 
 // Session Configuration
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-secret-key',
+  secret: process.env.SESSION_SECRET || '1234567',
   resave: false,
-  saveUninitialized: true,
+  saveUninitialized: false,
   store: MongoStore.create({
-    mongoUrl: process.env.MONGODB_URI || 'mongodb://localhost:27017/career-verse',
+    mongoUrl: process.env.MONGODB_URI,
     ttl: 24 * 60 * 60,
-    autoRemove: 'native',
-    touchAfter: 24 * 3600,
-    collectionName: 'express_sessions',
-    serialize: (session) => {
-      return JSON.stringify(session);
-    },
-    unserialize: (session) => {
-      return JSON.parse(session);
-    }
+    collectionName: 'express_sessions'
   }),
   cookie: {
-    secure: process.env.NODE_ENV === 'production', // Only use secure in production
-    maxAge: 24 * 60 * 60 * 1000,
     httpOnly: true,
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined, // Only set domain in production
-    path: '/'
+    secure: true,
+    sameSite: 'none',
+    maxAge: 24 * 60 * 60 * 1000,
   },
-  name: 'career_verse_sid',
-  rolling: true
+  name: 'career_verse_sid'
 }));
-
-// Add session debugging middleware
-app.use((req, res, next) => {
-  console.log('Session Debug:', {
-    sessionID: req.sessionID,
-    chatSessionId: req.session.chatSessionId,
-    cookie: req.headers.cookie,
-    origin: req.headers.origin,
-    host: req.headers.host,
-    env: process.env.NODE_ENV,
-    cookieConfig: {
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined
-    }
-  });
-  next();
-});
 
 // Middleware
 app.use(bodyParser.json());
@@ -234,19 +172,33 @@ app.post('/api/chat', validateMessage, async (req, res) => {
       session: req.session
     });
 
-    // Get or create chat session
-    let chatSession;
+    // Try to get session ID from session, cookie, or header
+    let sessionId = req.session.chatSessionId ||
+      (req.cookies && req.cookies.career_verse_sid) ||
+      (req.headers.cookie && req.headers.cookie.split(';')
+        .find(c => c.trim().startsWith('career_verse_sid='))
+        ?.split('=')[1]);
+
+    let chatSession = null;
     let isNewSession = false;
 
-    if (req.session.chatSessionId) {
-      // Try to find existing session
-      chatSession = await ChatSession.findOne({ sessionId: req.session.chatSessionId });
-      console.log('Found existing session:', chatSession ? 'Yes' : 'No');
+    if (sessionId) {
+      chatSession = await ChatSession.findOne({ sessionId });
       if (chatSession) {
-        console.log('Existing session state:', chatSession.state);
+        req.session.chatSessionId = sessionId; // Ensure session is set
+        await new Promise((resolve, reject) => {
+          req.session.save((err) => {
+            if (err) {
+              console.error('Error saving session:', err);
+              reject(err);
+            } else {
+              resolve();
+            }
+          });
+        });
       }
     }
-    
+
     if (!chatSession) {
       // Create new session if none exists
       const newSessionId = uuidv4();
@@ -265,12 +217,7 @@ app.post('/api/chat', validateMessage, async (req, res) => {
         state: CONVERSATION_STATES.ASK_USER_INFO,
         userInfo: {}
       });
-
-      console.log('Created new session:', newSessionId);
-      console.log('New session state:', chatSession.state);
       await chatSession.save();
-      
-      // Set session ID in cookie
       req.session.chatSessionId = newSessionId;
       await new Promise((resolve, reject) => {
         req.session.save((err) => {
@@ -278,18 +225,13 @@ app.post('/api/chat', validateMessage, async (req, res) => {
             console.error('Error saving session:', err);
             reject(err);
           } else {
-            console.log('Session saved successfully');
             resolve();
           }
         });
       });
-      
-      console.log('Session after save:', {
-        sessionId: req.session.chatSessionId,
-        sessionCookie: req.cookies?.career_verse_sid
-      });
-      
       isNewSession = true;
+      sessionId = newSessionId;
+      console.log('Created new session:', newSessionId);
     }
 
     console.log('Chat session:', chatSession);
@@ -390,14 +332,17 @@ app.post('/api/chat', validateMessage, async (req, res) => {
 // Get chat history
 app.get('/api/chat/history', async (req, res) => {
   try {
-    console.log('History API - Full Request Info:', {
-      sessionID: req.sessionID,
-      chatSessionId: req.session.chatSessionId,
-      cookie: req.headers.cookie,
-      origin: req.headers.origin,
-      host: req.headers.host,
-      session: req.session
-    });
+
+    console.log('Cookies:', req.cookies);
+
+    // console.log('History API - Full Request Info:', {
+    //   sessionID: req.sessionID,
+    //   chatSessionId: req.session.chatSessionId,
+    //   cookie: req.headers.cookie,
+    //   origin: req.headers.origin,
+    //   host: req.headers.host,
+    //   session: req.session
+    // });
 
     // Try to get session ID from both session and cookie
     const sessionId = req.session.chatSessionId || 
@@ -556,12 +501,13 @@ app.post('/api/chat/new-session', async (req, res) => {
           details: err.message 
         });
       }
-      
       console.log('Session updated successfully');
       res.json({ 
         success: true,
         message: 'New session created successfully',
-        sessionId: newSessionId
+        sessionId: newSessionId,
+        messages: newChatSession.messages,
+        userInfo: newChatSession.userInfo
       });
     });
   } catch (error) {
