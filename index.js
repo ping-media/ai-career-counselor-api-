@@ -25,6 +25,17 @@ if (missingEnvVars.length > 0) {
   process.exit(1);
 }
 
+// CORS Configuration
+app.use(cors({
+  origin: true, // Allow all origins
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cookie', 'Set-Cookie'],
+  exposedHeaders: ['Set-Cookie'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
+}));
+
 // Session Configuration
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
@@ -67,15 +78,6 @@ app.use((req, res, next) => {
 });
 
 // Middleware
-app.use(cors({
-  origin: function(origin, callback) {
-    callback(null, true); // Allow all origins
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cookie'],
-  exposedHeaders: ['Set-Cookie']
-}));
 app.use(bodyParser.json());
 
 // Input validation middleware
