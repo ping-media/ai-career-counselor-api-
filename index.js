@@ -27,7 +27,9 @@ if (missingEnvVars.length > 0) {
 
 // CORS Configuration
 app.use(cors({
-  origin: 'https://ai-career-counselor-app.vercel.app',
+  origin: function(origin, callback) {
+    callback(null, true); // Allow all origins
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cookie', 'Set-Cookie'],
