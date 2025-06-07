@@ -27,7 +27,7 @@ if (missingEnvVars.length > 0) {
 
 // CORS Configuration
 app.use(cors({
-  origin: true, // Allow all origins
+  origin: 'https://ai-career-counselor-app.vercel.app',
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cookie', 'Set-Cookie'],
@@ -55,10 +55,11 @@ app.use(session({
     }
   }),
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: true,
     maxAge: 24 * 60 * 60 * 1000,
     httpOnly: true,
-    sameSite: 'lax',
+    sameSite: 'none',
+    domain: '.vercel.app',
     path: '/'
   },
   name: 'career_verse_sid',
