@@ -42,7 +42,7 @@ app.use(cors({
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
   resave: false,
-  saveUninitialized: false,
+  saveUninitialized: true,
   store: MongoStore.create({
     mongoUrl: process.env.MONGODB_URI || 'mongodb://localhost:27017/career-verse',
     ttl: 24 * 60 * 60,
@@ -62,7 +62,8 @@ app.use(session({
     httpOnly: true,
     sameSite: 'none',
     domain: '.vercel.app',
-    path: '/'
+    path: '/',
+    credentials: true
   },
   name: 'career_verse_sid',
   rolling: true
