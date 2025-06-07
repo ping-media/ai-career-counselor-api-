@@ -28,8 +28,8 @@ if (missingEnvVars.length > 0) {
 // Session Configuration
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: true,
-  saveUninitialized: true,
+  resave: false,
+  saveUninitialized: false,
   store: MongoStore.create({
     mongoUrl: process.env.MONGODB_URI || 'mongodb://localhost:27017/career-verse',
     ttl: 24 * 60 * 60,
@@ -47,8 +47,7 @@ app.use(session({
     secure: process.env.NODE_ENV === 'production',
     maxAge: 24 * 60 * 60 * 1000,
     httpOnly: true,
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    domain: process.env.NODE_ENV === 'production' ? '.vercel.app' : undefined,
+    sameSite: 'lax',
     path: '/'
   },
   name: 'career_verse_sid',
@@ -69,14 +68,9 @@ app.use((req, res, next) => {
 
 // Middleware
 app.use(cors({
-  origin: [
-    process.env.FRONTEND_URL || 'http://localhost:5000',
-    'http://ai-career-counselor-app.vercel.app',
-    'https://ai-career-counselor-app.vercel.app',
-    'https://ypd.indyside.com',
-    'https://ai-career-counselor-app.vercel.app/',
-    'https://ai-career-counselor-app.vercel.app/api'
-  ],
+  origin: function(origin, callback) {
+    callback(null, true); // Allow all origins
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Cookie'],
